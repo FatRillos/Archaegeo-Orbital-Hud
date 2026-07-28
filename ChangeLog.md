@@ -1,5 +1,12 @@
 ## ChangeLog - Most recent changes at the top
 
+Version 2.103-awc - AutoWreckChase (community fork addition)
+- New: `AutoWreckChase` user variable. (Default: false) If true and `AbandonedRadar` is true, on detecting an abandoned construct the HUD cancels autopilot, brakes retrograde down to `WreckChaseSpeed`, then autopilots to the wreck automatically. Space only.
+- New: `WreckChaseSpeed` user variable. (Default: 1000) Speed in km/h to slow to before auto-engaging autopilot toward a detected wreck.
+- Feature: Chase is skipped while an autopilot route is already queued, and each contact only triggers once. Visited wrecks are remembered (databank key `WreckVisited`, 30 entries, 1 km match radius) so a re-seat does not re-chase a wreck you already looted.
+- New: `/wreckclear` command clears the visited-wreck list.
+
+
 Version 2.013 - Minor bug fixes
 - Fixed 100k/hr up speed limit in atmo, now limited to adjusted atmo speed limit.
 

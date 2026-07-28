@@ -629,6 +629,7 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 "/iphWP - displays current IPH target's ::pos waypoint in lua chat\n"..
                 "/resist 0.15, 0.15, 0.15, 0.15 - Sets shield resistance distribution of the floating 60% extra available, usable once per minute\n"..
                 "/deletewp - Deletes current selected custom wp\n"..
+                "/wreckclear - Clears the AutoWreckChase visited-wreck ignore list\n"..
                 "/createPrivate (all) - dumps private lcoations to screen if present to cut and paste to privatelocations.lua, all if present will make it include all databank locations.\n"..
                 "/trans (whatever) - shows the current transponder setting, whatever, if present, is the new tag that is set.\n"..
                 "/pipecenter - Shows a waypoint to closest pipe center and prints loc in lua chat and sets it to 1-Temp in IPH for use with autopilot"
@@ -738,6 +739,8 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
             else
                 msg ("Select a custom wp to delete first in IPH")
             end
+        elseif command == "/wreckclear" then
+            if RADAR then RADAR.ClearVisitedWrecks() end
         elseif command == "/copydatabank" then 
             if dbHud_2 then 
                 SaveDataBank(true) 

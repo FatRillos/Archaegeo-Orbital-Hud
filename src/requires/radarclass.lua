@@ -20,6 +20,42 @@ function RadarClass(c, s, u, radar_1, radar_2, warpdrive,
         local contacts = {}
         local radarData
         local lastPlay = 0
+        local wreckChasePhase = 0 -- 0 idle, 1 braking to WreckChaseSpeed, 2 enroute to wreck
+        local wreckChaseTarget
+        local wreckChaseDist = 0
+        local wreckChaseBraked = false
+        local wreckChaseBurning = false
+        local wreckVisited = {} -- vec3 positions of wrecks already visited; persisted to dbHud
+    local function saveWreckVisited()
+        if dbHud_1 then
+            local parts = {}
+            for i = 1, #wreckVisited do
+                local v = wreckVisited[i]
+                parts[#parts+1] = string.format("%.0f,%.0f,%.0f", v.x, v.y, v.z)
+            end
+            dbHud_1.setStringValue("WreckVisited", table.concat(parts, ";"))
+        end
+    end
+    local function loadWreckVisited()
+        if dbHud_1 and dbHud_1.hasKey("WreckVisited") == 1 then
+            for entry in string.gmatch(dbHud_1.getStringValue("WreckVisited") or "", "([^;]+)") do
+                local x, y, z = string.match(entry, "([-%d%.]+),([-%d%.]+),([-%d%.]+)")
+                if x then wreckVisited[#wreckVisited+1] = vec3(tonum(x), tonum(y), tonum(z)) end
+            end
+        end
+    end
+    local function isWreckVisited(pos)
+        for i = 1, #wreckVisited do
+            if (wreckVisited[i] - pos):len() < 1000 then return true end
+        end
+        return false
+    end
+    local function markWreckVisited(pos)
+        if isWreckVisited(pos) then return end
+        wreckVisited[#wreckVisited+1] = pos
+        if #wreckVisited > 30 then table.remove(wreckVisited, 1) end
+        saveWreckVisited()
+    end
         local insert = table.insert
         local activeRadarState = -4
         local radarStatus = {
@@ -180,7 +216,22 @@ function RadarClass(c, s, u, radar_1, radar_2, warpdrive,
                                         s.print("Abandoned Construct: "..construct.name.." ("..size.." ".. cTypeString[cType]..") at ::pos{0,0,"..construct.center.x..","..construct.center.y..","..construct.center.z.."}")
                                         msg ("Abandoned Radar Contact ("..size.." ".. cTypeString[cType]..") detected")
                                         construct.abandoned = true
-                                    end 
+                                        if AutoWreckChase and not inAtmo and #apRoute == 0 then
+                                            if isWreckVisited(construct.center) then
+                                                msg ("Wreck Chase: ignoring visited wreck "..construct.name)
+                                            elseif distance < 5000 then
+                                                markWreckVisited(construct.center) -- already parked at it; count as visited
+                                                msg ("Wreck Chase: "..construct.name.." is close by, marking visited (no chase)")
+                                            elseif wreckChasePhase == 1 and distance < wreckChaseDist then
+                                                wreckChaseTarget, wreckChaseDist = construct.center, distance
+                                                msg ("Wreck Chase: retargeting closer contact "..construct.name)
+                                            elseif wreckChasePhase == 0 then
+                                                wreckChaseTarget, wreckChaseDist = construct.center, distance
+                                                wreckChasePhase = 1
+                                                AP.ResetAutopilots(true)
+                                            end
+                                        end
+                                    end
                                 else
                                     insert(knownContacts, construct) 
                                 end
@@ -256,6 +307,55 @@ function RadarClass(c, s, u, radar_1, radar_2, warpdrive,
     end
 
     function Radar.UpdateRadar()
+        if wreckChasePhase == 1 then
+            if velMag * 3.6 <= WreckChaseSpeed then
+                wreckChasePhase = 2
+                wreckChaseBraked = false
+                RetrogradeIsOn = false
+                if wreckChaseBurning then AP.cmdThrottle(0) wreckChaseBurning = false end
+                if BrakeIsOn then AP.BrakeToggle() end
+                ATLAS.AddNewLocation("0-Temp", wreckChaseTarget, true)
+                AP.ToggleAutopilot()
+                msg ("Wreck Chase: proceeding to wreck")
+            elseif not wreckChaseBraked then
+                wreckChaseBraked = true
+                if not BrakeIsOn then AP.BrakeToggle() end
+                RetrogradeIsOn = true
+                msg ("Wreck Chase: braking to "..WreckChaseSpeed.." km/h before turning")
+            elseif not BrakeIsOn then
+                wreckChasePhase = 0 -- pilot released brakes: cancel, and retro goes with the brakes
+                wreckChaseBraked = false
+                RetrogradeIsOn = false
+                if wreckChaseBurning then AP.cmdThrottle(0) wreckChaseBurning = false end
+                msg ("Wreck Chase: cancelled")
+            elseif not RetrogradeIsOn then
+                wreckChasePhase = 0 -- pilot took over alignment: cancel, leave brakes to them
+                wreckChaseBraked = false
+                if wreckChaseBurning then AP.cmdThrottle(0) wreckChaseBurning = false end
+                msg ("Wreck Chase: cancelled")
+            else
+                -- Retro burn gating: engines only add braking thrust when the nose is actually
+                -- pointed retrograde. Hysteresis so throttle doesn't chatter at the edge.
+                local dot = constructForward:dot(-constructVelocity:normalize())
+                if wreckChaseBurning then
+                    if dot < 0.98 then
+                        AP.cmdThrottle(0)
+                        wreckChaseBurning = false
+                    end
+                elseif dot > 0.995 then
+                    AP.cmdThrottle(1)
+                    wreckChaseBurning = true
+                    msg ("Wreck Chase: retro burn")
+                end
+            end
+        elseif wreckChasePhase == 2 then
+            if not (Autopilot or VectorToTarget or spaceLaunch or IntoOrbit) then
+                if wreckChaseTarget and (worldPos - wreckChaseTarget):len() < 10000 then
+                    markWreckVisited(wreckChaseTarget) -- arrived; never auto-chase this one again
+                end
+                wreckChasePhase = 0 -- arrived or pilot cancelled; new detections may chase again
+            end
+        end
         local cont = coroutine.status (UpdateRadarCoroutine)
         if cont == "suspended" then 
             local value, done = coroutine.resume(UpdateRadarCoroutine)
@@ -321,6 +421,12 @@ function RadarClass(c, s, u, radar_1, radar_2, warpdrive,
         toggleRadarPanel()
     end
 
+    function Radar.ClearVisitedWrecks()
+        wreckVisited = {}
+        saveWreckVisited()
+        msg ("Wreck Chase: visited list cleared")
+    end
+
     function Radar.ContactTick()
         if not contactTimer then contactTimer = 0 end
         if time > contactTimer+10 then
@@ -364,6 +470,11 @@ function RadarClass(c, s, u, radar_1, radar_2, warpdrive,
         radars = {activeRadar}
         radarData = activeRadar.getConstructIds()
         pickType()
+        loadWreckVisited()
+        if AutoWreckChase then
+            WreckChaseSpeed = WreckChaseSpeed or 1000
+            s.print("[WreckChase] Armed - threshold "..WreckChaseSpeed.." km/h, "..#wreckVisited.." visited wreck(s) ignored")
+        end
         UpdateRadarCoroutine = coroutine.create(UpdateRadarRoutine)
 
         if userRadar then 
