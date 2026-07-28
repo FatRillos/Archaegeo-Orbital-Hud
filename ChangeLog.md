@@ -6,6 +6,34 @@ Version 2.103-awc - AutoWreckChase (community fork addition)
 - Feature: Chase is skipped while an autopilot route is already queued, and each contact only triggers once. Visited wrecks are remembered (databank key `WreckVisited`, 30 entries, 1 km match radius) so a re-seat does not re-chase a wreck you already looted.
 - New: `/wreckclear` command clears the visited-wreck list.
 
+#### How to use AutoWreckChase
+
+1. Install as normal: unzip `ArchHUD.zip` into
+   `%ProgramData%\Dual Universe\Game\data\lua\autoconf\custom\`
+   (you should end up with `ArchHUD.conf` and an `archhud\` folder side by side).
+2. In game, right click your seat or remote controller, then
+   `Advanced` -> `Update custom autoconf` -> pick ArchHUD.
+3. Right click the seat again, `Advanced` -> `Edit Lua parameters`, and set:
+   - `AbandonedRadar = true`  (required - AutoWreckChase does nothing without it)
+   - `AutoWreckChase = true`
+   - `WreckChaseSpeed = 1000` (km/h; lower it if your ship drifts wide on the turn)
+4. You need a radar for detection. A databank is optional but recommended - without one
+   the visited-wreck list is not remembered between seat entries.
+
+When armed you get a `[WreckChase] Armed` message on entering the seat.
+
+What it does: in space only, when radar reports an abandoned construct, the HUD cancels
+any active autopilot, brakes while pointing retrograde until you are down to
+`WreckChaseSpeed`, drops a temporary waypoint on the wreck and re-engages autopilot to it.
+Throttle only applies while you are actually pointed the right way, so it will not fight
+you mid-turn.
+
+It will not trigger while you already have an autopilot route queued, and each contact
+only fires once. Wrecks you have already reached are remembered (30 of them, matched
+within 1 km) so re-seating does not send you back to one you already emptied. Use
+`/wreckclear` in Lua chat to wipe that list.
+
+
 
 Version 2.013 - Minor bug fixes
 - Fixed 100k/hr up speed limit in atmo, now limited to adjusted atmo speed limit.
